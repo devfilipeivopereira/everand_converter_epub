@@ -1,0 +1,6 @@
+.
+python_lib
+DLLs
+app
+app_lib
+import site

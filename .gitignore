@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+.venv-*/
+venv/
+
+# Build and release output
+build/
+dist/
+release/
+*.spec
+
+# Local Everand data — never commit
+app_document_cache/
+snapshots/
+integration-data/
+integration-output/
+trusted-exe-data/
+trusted-exe-output/
+final-e2e-data/
+final-e2e-output/
+FILENAME_KEYS.xml
+scribdData
+Scribd.db
+*.epub
+*.sqlite
+*.sqlite3
+
+# Private research notes and local credentials
+ANALISE_CACHE_EVERAND.md
+.env
+.env.*
+.appdeploy
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
