@@ -1,4 +1,4 @@
-# Everand EPUB Studio 1.0
+# Everand EPUB Studio 1.0.1
 
 Aplicativo Windows para coletar ebooks baixados para leitura offline no Everand dentro do LDPlayer e reconstruí-los como EPUB 3. O processamento é totalmente local.
 
@@ -23,7 +23,16 @@ O Everand é pausado por alguns segundos durante a cópia consistente dos bancos
 - Lista apenas ebooks EPUB presentes no cache offline.
 - Só converte quando os bancos locais confirmam `unlocked`, acesso integral e permissão de download.
 - Reconstrói capítulos, estilos, imagens, tabelas, links, navegação, páginas, capa, fontes e metadados.
+- Identifica a imagem no capítulo de capa mesmo quando ela não está rotulada como `cover`.
+- Cria uma capa tipográfica válida com título e autor quando nenhuma imagem de capa existe.
 - Valida a estrutura interna antes de considerar o EPUB concluído.
+
+## Organizar a lista de livros
+
+- Clique em **Excluir da lista** no cartão de um livro para ocultá-lo.
+- A confirmação deixa claro que o download no LDPlayer e os EPUBs já gerados não serão apagados.
+- Clique em **Restaurar excluídos** na barra lateral para restaurar um título específico ou todos.
+- A preferência permanece salva após fechar o programa e pode ser desfeita a qualquer momento.
 
 ## Pastas usadas
 
@@ -56,6 +65,7 @@ O cache dentro do LDPlayer não é alterado. Apenas arquivos temporários própr
 - **Everand não instalado:** instale o aplicativo no mesmo emulador conectado.
 - **Livro não aparece:** conclua o download offline e abra o livro uma vez no Everand.
 - **Livro não elegível:** verifique se sua conta possui acesso integral e permissão de download.
+- **Livro sem capa identificada:** a versão 1.0.1 procura a imagem no capítulo de capa e, se ela realmente não existir, cria uma capa tipográfica automaticamente sem interromper a conversão.
 - **Falha inesperada:** consulte `%LOCALAPPDATA%\Everand EPUB Studio\logs\last-run.log`.
 
 ## Compatibilidade com Smart App Control

@@ -19,10 +19,11 @@ Use preferencialmente `EverandEPUBStudio-Trusted.zip`, extraia o pacote inteiro 
 - Descoberta automática do ADB fornecido pelo LDPlayer 9 ou 14.
 - Coleta consistente do cache privado do Everand por ADB root.
 - Snapshots datados, sem apagar coletas anteriores.
-- Catálogo com busca, seleção e situação de acesso de cada ebook.
+- Catálogo com busca, seleção, exclusão reversível e situação de acesso de cada ebook.
 - Verificação local de acesso integral e permissão de download.
 - Reconstrução de capítulos, formatação por fragmento, imagens, tabelas e links.
-- Capa, fontes, navegação EPUB 3, NCX, lista de páginas e metadados bibliográficos.
+- Capa original detectada mesmo sem rótulo explícito e capa tipográfica automática quando a imagem não existe.
+- Fontes, navegação EPUB 3, NCX, lista de páginas e metadados bibliográficos.
 - Validação estrutural antes de publicar o arquivo final.
 - Interface nativa em português e processamento em segundo plano.
 - Edição compatível com Smart App Control sem desativar a proteção do Windows.
@@ -35,6 +36,8 @@ Use preferencialmente `EverandEPUBStudio-Trusted.zip`, extraia o pacote inteiro 
 4. Execute `EverandEPUBStudio.exe`.
 5. Clique em **Atualizar do LDPlayer**.
 6. Escolha a pasta de saída e clique em **Reconstruir EPUB selecionados**.
+
+Cada cartão possui **Excluir da lista**. Essa ação só oculta o item no aplicativo; não apaga o download no LDPlayer nem EPUBs existentes. Use **Restaurar excluídos** na barra lateral para desfazer.
 
 Consulte o [guia de uso](GUIA_DE_USO.md) para configuração, diagnóstico e localização dos snapshots.
 
@@ -76,12 +79,12 @@ Detalhes adicionais:
 - [Processo de build e release](docs/BUILD_E_RELEASE.md)
 - [Histórico de mudanças](CHANGELOG.md)
 
-## Validação da versão 1.0.0
+## Validação da versão 1.0.1
 
-- Coleta e conversão ponta a ponta executadas pelo `.exe` no LDPlayer 14/Android 14.
-- 6 testes automatizados aprovados no ambiente integral.
+- Conversão reproduzida e corrigida com o livro *Comeback Churches*, cuja capa original vinha rotulada apenas como `Image`.
+- 10 testes automatizados aprovados no ambiente integral, incluindo exclusão/restauração e capa ausente.
 - 96 componentes nativos com assinatura digital válida na edição `Trusted`.
-- EPUBCheck 5.3.0: zero erros, zero avisos e zero informações.
+- EPUBCheck 5.3.0: zero erros, zero avisos e zero informações tanto com a capa original inferida quanto com a capa automática.
 
 ## Aviso
 

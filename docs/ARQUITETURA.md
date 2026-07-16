@@ -39,12 +39,13 @@ flowchart LR
 - Obtém a chave local associada ao documento.
 - Decifra recursos em memória usando `cryptography` no desenvolvimento ou CNG no build confiável.
 - Reconstrói XHTML, CSS, imagens, fontes, navegação e metadados.
+- Resolve a capa em três níveis: rótulo explícito, primeira imagem do capítulo de capa e SVG tipográfico de contingência.
 - Gera primeiro um arquivo temporário, valida-o e só então substitui a saída.
 
 ### `everand_app/ui.py`
 
 - Interface PySide6 com tarefas executadas fora da thread visual.
-- Busca, seleção, pasta de saída, progresso e mensagens de erro.
+- Busca, seleção, exclusão/restauração reversível, pasta de saída, progresso e mensagens de erro.
 - Configurações persistidas por usuário com `QSettings`.
 
 ## Dados locais

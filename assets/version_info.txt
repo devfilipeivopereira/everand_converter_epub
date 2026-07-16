@@ -1,8 +1,8 @@
 # UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 0, 0),
-    prodvers=(1, 0, 0, 0),
+    filevers=(1, 0, 1, 0),
+    prodvers=(1, 0, 1, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,12 +16,12 @@ VSVersionInfo(
         '041604B0',
         [StringStruct('CompanyName', 'Everand EPUB Studio'),
          StringStruct('FileDescription', 'Reconstrutor local de EPUBs autorizados do Everand'),
-         StringStruct('FileVersion', '1.0.0'),
+         StringStruct('FileVersion', '1.0.1'),
          StringStruct('InternalName', 'EverandEPUBStudio'),
          StringStruct('LegalCopyright', 'Uso local autorizado'),
          StringStruct('OriginalFilename', 'EverandEPUBStudio.exe'),
          StringStruct('ProductName', 'Everand EPUB Studio'),
-         StringStruct('ProductVersion', '1.0.0')])
+         StringStruct('ProductVersion', '1.0.1')])
     ]),
     VarFileInfo([VarStruct('Translation', [1046, 1200])])
   ]

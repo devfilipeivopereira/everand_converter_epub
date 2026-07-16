@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import traceback
 from pathlib import Path
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -30,7 +32,14 @@ from PySide6.QtWidgets import (
 from everand_to_epub import ConversionError
 
 from .adb_client import AdbClient, AdbError
-from .catalog import CachedBook, convert_selected, latest_snapshot, scan_library, snapshot_description
+from .catalog import (
+    CachedBook,
+    convert_selected,
+    filter_hidden_books,
+    latest_snapshot,
+    scan_library,
+    snapshot_description,
+)
 from .version import APP_NAME, APP_VERSION
 
 
@@ -55,6 +64,8 @@ class JobThread(QThread):
 
 
 class BookCard(QFrame):
+    remove_requested = Signal(str)
+
     def __init__(self, book: CachedBook) -> None:
         super().__init__()
         self.book = book
@@ -82,17 +93,34 @@ class BookCard(QFrame):
         title = QLabel(book.title)
         title.setObjectName("bookTitle")
         title.setWordWrap(True)
+        title.setMinimumWidth(0)
+        title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         author = QLabel(book.author)
         author.setObjectName("bookAuthor")
+        author.setMinimumWidth(0)
+        author.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         status = QLabel(
             f"{'Acesso integral confirmado' if book.eligible else 'Não elegível'}  •  {book.size_label}  •  ID {book.book_id}"
         )
         status.setObjectName("bookStatus" if book.eligible else "bookWarning")
         status.setToolTip(book.status)
+        status.setMinimumWidth(0)
+        status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         text.addWidget(title)
         text.addWidget(author)
         text.addWidget(status)
         layout.addLayout(text, 1)
+
+        self.remove_button = QPushButton("Excluir da lista")
+        self.remove_button.setObjectName("removeButton")
+        self.remove_button.setToolTip(
+            "Oculta este livro no aplicativo sem apagar o download ou EPUBs existentes."
+        )
+        self.remove_button.setAccessibleName(f"Excluir {book.title} da lista")
+        self.remove_button.clicked.connect(
+            lambda: self.remove_requested.emit(self.book.book_id)
+        )
+        layout.addWidget(self.remove_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def matches(self, query: str) -> bool:
         haystack = f"{self.book.title} {self.book.author} {self.book.book_id}".casefold()
@@ -122,8 +150,10 @@ class MainWindow(QMainWindow):
         self.snapshots_root = data_root / "snapshots"
         self.settings = QSettings("Everand EPUB Studio", "Everand EPUB Studio")
         self.library_root: Path | None = None
+        self.all_books: list[CachedBook] = []
         self.books: list[CachedBook] = []
         self.cards: list[BookCard] = []
+        self.hidden_book_ids = self._load_hidden_book_ids()
         self.active_job: JobThread | None = None
 
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
@@ -183,6 +213,12 @@ class MainWindow(QMainWindow):
         self.library_summary.setObjectName("muted")
         self.library_summary.setWordWrap(True)
         side.addWidget(self.library_summary)
+        self.restore_button = QPushButton("Restaurar excluídos")
+        self.restore_button.setObjectName("restoreButton")
+        self.restore_button.setToolTip("Mostra novamente livros ocultados desta lista.")
+        self.restore_button.clicked.connect(self.show_restore_menu)
+        self.restore_button.setVisible(False)
+        side.addWidget(self.restore_button)
         side.addSpacerItem(QSpacerItem(10, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
         notice = QLabel(
             "Uso local autorizado\n\nA reconstrução só é liberada quando o cache confirma acesso integral e permissão de download."
@@ -229,6 +265,7 @@ class MainWindow(QMainWindow):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_content = QWidget()
         self.cards_layout = QVBoxLayout(self.scroll_content)
         self.cards_layout.setContentsMargins(2, 2, 8, 2)
@@ -291,6 +328,8 @@ class MainWindow(QMainWindow):
             QPushButton:disabled { color: #9ca3af; background: #e5e7eb; border-color: #e5e7eb; }
             #primaryButton { background: #f59e0b; color: #111827; border: none; padding: 12px; }
             #primaryButton:hover { background: #fbbf24; }
+            #restoreButton { background: #374151; color: white; border-color: #4b5563; padding: 8px 12px; }
+            #restoreButton:hover { background: #4b5563; border-color: #f59e0b; }
             #convertButton { background: #111827; color: white; border: none; padding: 12px 22px; }
             #convertButton:hover { background: #273449; }
             #bookCard { background: white; border: 1px solid #e5e7eb; border-radius: 9px; }
@@ -300,6 +339,8 @@ class MainWindow(QMainWindow):
             #bookAuthor { color: #4b5563; }
             #bookStatus { color: #047857; font-size: 8.5pt; }
             #bookWarning { color: #b45309; font-size: 8.5pt; }
+            #removeButton { color: #991b1b; border-color: #fecaca; background: #fffafa; padding: 7px 10px; font-size: 9pt; }
+            #removeButton:hover { color: #7f1d1d; border-color: #ef4444; background: #fef2f2; }
             #emptyState { color: #6b7280; padding: 50px; font-size: 11pt; }
             QProgressBar { background: #e5e7eb; border: none; border-radius: 3px; height: 6px; }
             QProgressBar::chunk { background: #f59e0b; border-radius: 3px; }
@@ -317,6 +358,81 @@ class MainWindow(QMainWindow):
             self.load_library(candidate)
         else:
             self.refresh_cards([])
+
+    def _load_hidden_book_ids(self) -> set[str]:
+        raw = self.settings.value("hidden_book_ids", "[]")
+        try:
+            values = json.loads(str(raw))
+        except (TypeError, ValueError):
+            return set()
+        if not isinstance(values, list):
+            return set()
+        return {str(value) for value in values if str(value).isdigit()}
+
+    def _save_hidden_book_ids(self) -> None:
+        self.settings.setValue(
+            "hidden_book_ids", json.dumps(sorted(self.hidden_book_ids))
+        )
+
+    def _apply_hidden_filter(self) -> None:
+        self.books = filter_hidden_books(self.all_books, self.hidden_book_ids)
+        self.refresh_cards(self.books)
+
+    def exclude_book_from_list(self, book_id: str) -> None:
+        book = next((item for item in self.all_books if item.book_id == book_id), None)
+        if book is None:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Excluir livro da lista?",
+            f'“{book.title}” será ocultado somente nesta lista.\n\n'
+            "O download no LDPlayer e os EPUBs já criados não serão apagados. "
+            "Você poderá restaurar o livro depois.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.hidden_book_ids.add(book_id)
+        self._save_hidden_book_ids()
+        self.log(f'Excluído da lista: “{book.title}”.')
+        self._apply_hidden_filter()
+
+    def restore_book(self, book_id: str) -> None:
+        self.hidden_book_ids.discard(book_id)
+        self._save_hidden_book_ids()
+        self._apply_hidden_filter()
+
+    def restore_all_books(self) -> None:
+        restored = len(self.hidden_book_ids)
+        self.hidden_book_ids.clear()
+        self._save_hidden_book_ids()
+        self._apply_hidden_filter()
+        self.log(f"Restaurado(s) à lista: {restored} livro(s).")
+
+    def show_restore_menu(self) -> None:
+        if not self.hidden_book_ids:
+            return
+        menu = QMenu(self)
+        current_hidden = [
+            book for book in self.all_books if book.book_id in self.hidden_book_ids
+        ]
+        for book in current_hidden:
+            action = menu.addAction(f"Restaurar: {book.title}")
+            action.triggered.connect(
+                lambda _checked=False, book_id=book.book_id: self.restore_book(book_id)
+            )
+        if current_hidden:
+            menu.addSeparator()
+        restore_all = menu.addAction(
+            f"Restaurar todos ({len(self.hidden_book_ids)})"
+        )
+        restore_all.triggered.connect(self.restore_all_books)
+        menu.exec(
+            self.restore_button.mapToGlobal(
+                QPoint(0, self.restore_button.height())
+            )
+        )
 
     def _save_output(self) -> None:
         self.settings.setValue("output_dir", self.output_edit.text().strip())
@@ -338,6 +454,8 @@ class MainWindow(QMainWindow):
     def set_busy(self, busy: bool) -> None:
         self.collect_button.setEnabled(not busy)
         self.convert_button.setEnabled(not busy and any(book.eligible for book in self.books))
+        for card in self.cards:
+            card.remove_button.setEnabled(not busy)
 
     def start_job(self, job: Callable, success: Callable[[object], None]) -> None:
         if self.active_job and self.active_job.isRunning():
@@ -381,9 +499,9 @@ class MainWindow(QMainWindow):
         self.library_root = snapshot
         self.device_status.setText("LDPlayer: snapshot carregado")
         self.settings.setValue("library_root", str(snapshot))
-        self.books = scan_library(snapshot)
+        self.all_books = scan_library(snapshot)
         self.library_summary.setText(snapshot_description(snapshot))
-        self.refresh_cards(self.books)
+        self._apply_hidden_filter()
 
     def refresh_cards(self, books: list[CachedBook]) -> None:
         while self.cards_layout.count():
@@ -395,8 +513,17 @@ class MainWindow(QMainWindow):
                 widget.deleteLater()
         self.cards = []
         if not books:
+            if self.all_books and self.hidden_book_ids:
+                empty_message = (
+                    "Todos os livros deste snapshot foram excluídos da lista. "
+                    "Use “Restaurar excluídos” para mostrá-los novamente."
+                )
+            else:
+                empty_message = (
+                    "Nenhum ebook offline foi encontrado. Baixe um livro no Everand e atualize a biblioteca."
+                )
             self.empty_label = QLabel(
-                "Nenhum ebook offline foi encontrado. Baixe um livro no Everand e atualize a biblioteca."
+                empty_message
             )
             self.empty_label.setObjectName("emptyState")
             self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -405,11 +532,21 @@ class MainWindow(QMainWindow):
         else:
             for book in books:
                 card = BookCard(book)
+                card.remove_requested.connect(self.exclude_book_from_list)
                 self.cards.append(card)
                 self.cards_layout.addWidget(card)
             self.cards_layout.addStretch()
         eligible = sum(book.eligible for book in books)
-        self.count_label.setText(f"{len(books)} livro(s) • {eligible} elegível(is)")
+        hidden_here = sum(
+            book.book_id in self.hidden_book_ids for book in self.all_books
+        )
+        hidden_suffix = f" • {hidden_here} excluído(s)" if hidden_here else ""
+        self.count_label.setText(
+            f"{len(books)} livro(s) • {eligible} elegível(is){hidden_suffix}"
+        )
+        hidden_total = len(self.hidden_book_ids)
+        self.restore_button.setText(f"Restaurar excluídos ({hidden_total})")
+        self.restore_button.setVisible(hidden_total > 0)
         busy = bool(self.active_job and self.active_job.isRunning())
         self.convert_button.setEnabled(eligible > 0 and not busy)
         self.filter_books(self.search.text())

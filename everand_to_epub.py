@@ -94,6 +94,65 @@ def format_number(value: Any) -> str:
     return rendered or "0"
 
 
+def wrap_cover_text(value: Any, max_chars: int, max_lines: int) -> list[str]:
+    """Wrap untrusted metadata into a small, deterministic set of SVG text lines."""
+    words = xml_text(value).strip().split()
+    if not words:
+        return []
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if current and len(candidate) > max_chars:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    if len(lines) > max_lines:
+        last = " ".join(lines[max_lines - 1 :])
+        if len(last) > max_chars:
+            last = last[: max(1, max_chars - 1)].rstrip() + "…"
+        lines = lines[: max_lines - 1] + [last]
+    return lines
+
+
+def generated_cover_svg(title: str, author: str) -> bytes:
+    """Create a standards-compliant fallback cover when the cache has no cover image."""
+    title_lines = wrap_cover_text(title or "Untitled", 26, 7) or ["Untitled"]
+    author_lines = wrap_cover_text(author or "Autor não informado", 38, 2)
+    title_font_size = 150 if len(title_lines) <= 4 else 124
+    title_step = int(title_font_size * 1.22)
+    title_y = 650
+    title_tspans = "".join(
+        f'<tspan x="150" y="{title_y + index * title_step}">{text_escape(line)}</tspan>'
+        for index, line in enumerate(title_lines)
+    )
+    author_y = 2140
+    author_tspans = "".join(
+        f'<tspan x="150" y="{author_y + index * 86}">{text_escape(line)}</tspan>'
+        for index, line in enumerate(author_lines)
+    )
+    document = f'''<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2560" viewBox="0 0 1600 2560" role="img" aria-labelledby="cover-title cover-description">
+  <title id="cover-title">{text_escape(title or "Untitled")}</title>
+  <desc id="cover-description">Capa tipográfica de contingência para {text_escape(title or "Untitled")}</desc>
+  <rect width="1600" height="2560" fill="#111827" />
+  <rect x="0" y="0" width="46" height="2560" fill="#f59e0b" />
+  <circle cx="1450" cy="190" r="330" fill="#1f2937" />
+  <circle cx="1450" cy="190" r="210" fill="#f59e0b" opacity="0.94" />
+  <rect x="150" y="330" width="230" height="18" rx="9" fill="#f59e0b" />
+  <text x="150" y="445" fill="#f59e0b" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="700" letter-spacing="9">EPUB</text>
+  <text fill="#ffffff" font-family="Georgia, Times New Roman, serif" font-size="{title_font_size}" font-weight="700">{title_tspans}</text>
+  <rect x="150" y="2010" width="1300" height="3" fill="#f59e0b" opacity="0.8" />
+  <text fill="#f3f4f6" font-family="Segoe UI, Arial, sans-serif" font-size="62" font-weight="500">{author_tspans}</text>
+  <text x="150" y="2390" fill="#9ca3af" font-family="Segoe UI, Arial, sans-serif" font-size="34" letter-spacing="4">EVERAND EPUB STUDIO</text>
+</svg>
+'''
+    return document.encode("utf-8")
+
+
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -408,6 +467,7 @@ class EpubRenderer:
         self.image_map: dict[tuple[int, str], str] = {}
         self.cover_href: str | None = None
         self.cover_chapter_index = 0
+        self.cover_source = "declared"
         self.position_ids: dict[tuple[int, int], str] = {}
         self.tag_targets: dict[str, tuple[int, int]] = {}
         self.page_targets: dict[int, tuple[int, int]] = {}
@@ -468,6 +528,7 @@ class EpubRenderer:
                 self.image_map[(chapter.index, source_ref)] = href
                 self.images[href] = content
 
+        cover_candidates: list[tuple[str, int]] = []
         for chapter in self.chapters:
             for block in chapter.blocks:
                 for image in self._walk_images(block):
@@ -477,11 +538,25 @@ class EpubRenderer:
                         raise ConversionError(
                             f"Imagem referenciada e ausente: capítulo {chapter.index + 1}, {source_ref}"
                         )
-                    if xml_text(image.get("alt")).lower() == "cover" and self.cover_href is None:
+                    if chapter.body_type == "cover":
+                        cover_candidates.append((mapped, chapter.index))
+                    normalized_alt = re.sub(
+                        r"\s+", " ", xml_text(image.get("alt")).strip().casefold()
+                    )
+                    if normalized_alt in {"cover", "front cover", "book cover", "capa"} and self.cover_href is None:
                         self.cover_href = mapped
                         self.cover_chapter_index = chapter.index
         if self.cover_href is None:
-            raise ConversionError("Não foi possível identificar a imagem de capa.")
+            if cover_candidates:
+                self.cover_href, self.cover_chapter_index = cover_candidates[0]
+                self.cover_source = "inferred"
+            else:
+                self.cover_href = "images/generated-cover.svg"
+                self.cover_chapter_index = 0
+                self.cover_source = "generated"
+                self.images[self.cover_href] = generated_cover_svg(
+                    self.record.title, self.record.author
+                )
 
     def _walk_images(self, value: Any) -> Iterable[dict[str, Any]]:
         if isinstance(value, dict):
@@ -555,7 +630,10 @@ class EpubRenderer:
         if not mapped:
             raise ConversionError(f"Imagem sem mapeamento: capítulo {chapter_index + 1}, {source_ref}")
         attributes = [f'src="../{attr_escape(mapped)}"']
-        attributes.append(f'alt="{attr_escape(image.get("alt", ""))}"')
+        alternative = xml_text(image.get("alt", "")).strip()
+        if mapped == self.cover_href and alternative.casefold() in {"", "image", "imagem"}:
+            alternative = f"Capa de {self.record.title}"
+        attributes.append(f'alt="{attr_escape(alternative)}"')
         for dimension in ("width", "height"):
             value = image.get(dimension)
             if isinstance(value, (int, float)) and value > 0:
@@ -765,6 +843,13 @@ class EpubRenderer:
         ]
         first_headline = headline_indexes[0] if headline_indexes else None
         body: list[str] = []
+        if self.cover_source == "generated" and chapter.index == self.cover_chapter_index:
+            body.append(
+                '<section class="generated-cover-page" epub:type="cover">'
+                f'<img src="../{attr_escape(self.cover_href)}" class="book-image cover-image" '
+                f'alt="{attr_escape(f"Capa de {self.record.title}")}" />'
+                "</section>"
+            )
         if first_headline is None:
             body.append(f'<h1 class="visually-hidden">{text_escape(chapter.title)}</h1>')
         cursor = 0
@@ -927,6 +1012,7 @@ sup{font-size:.75em;line-height:0;vertical-align:super}
 a{color:inherit;text-decoration:underline;text-decoration-thickness:.06em;text-underline-offset:.12em}
 .figure{text-align:left;margin:1em auto;page-break-inside:avoid;break-inside:avoid}.figure.center{text-align:center}
 .book-image{display:inline-block;max-width:100%;height:auto}.cover-image{display:block;max-height:90vh;width:auto;margin:0 auto}
+.generated-cover-page{margin:0;padding:0;text-align:center;break-after:page;page-break-after:always}
 .spacer{display:block}.forced-page-break{break-before:page;page-break-before:always;height:0}
 .border{height:0;margin:.6em auto}.anchor,.pagebreak-anchor{display:inline;height:0;width:0}
 hr{border:0;border-top:1px solid currentColor;margin:1em auto;width:35%}
@@ -990,7 +1076,12 @@ nav ol{padding-left:1.5em}nav li{margin:.35em 0}
                 f'media-type="application/xhtml+xml" />'
             )
         for index, href in enumerate(sorted(self.images), start=1):
-            media_type = "image/png" if href.endswith(".png") else "image/jpeg"
+            if href.endswith(".png"):
+                media_type = "image/png"
+            elif href.endswith(".svg"):
+                media_type = "image/svg+xml"
+            else:
+                media_type = "image/jpeg"
             properties = ' properties="cover-image"' if href == self.cover_href else ""
             manifest.append(
                 f'<item id="image-{index:03d}" href="{attr_escape(href)}" '
@@ -1048,6 +1139,7 @@ nav ol{padding-left:1.5em}nav li{margin:.35em 0}
             "anchors": len(self.position_ids),
             "pages": len(self.page_targets),
             "identifier": identifier,
+            "cover_source": self.cover_source,
         }
         return self.files, report
 

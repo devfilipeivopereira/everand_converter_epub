@@ -5,20 +5,129 @@ import os
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 from dataclasses import replace
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import everand_to_epub
 from everand_app.adb_client import AdbClient, AdbError, parse_devices
-from everand_app.catalog import scan_library
+from everand_app.catalog import CachedBook, filter_hidden_books, scan_library
 from everand_to_epub import (
+    BookRecord,
+    Chapter,
     ConversionError,
+    EpubRenderer,
     convert_book,
     decrypt_aes_ecb,
+    generated_cover_svg,
     load_book_record,
     validate_epub,
     verify_entitlement,
 )
+
+
+class CoverFallbackTests(unittest.TestCase):
+    def test_generated_cover_is_valid_svg(self) -> None:
+        content = generated_cover_svg(
+            "Um título & muito <especial>", "Autora & Companhia"
+        )
+        root = ET.fromstring(content)
+        self.assertEqual(root.tag, "{http://www.w3.org/2000/svg}svg")
+        self.assertIn(b"Um t\xc3\xadtulo &amp; muito &lt;especial&gt;", content)
+
+    def test_renderer_generates_cover_when_cache_has_no_images(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            renderer = object.__new__(EpubRenderer)
+            renderer.chapters = [
+                Chapter(
+                    index=0,
+                    title="Front Cover",
+                    filename="chapter-001.xhtml",
+                    source_dir=Path(temporary),
+                    block_start=0,
+                    block_end=0,
+                    blocks=[],
+                    body_type="cover",
+                )
+            ]
+            renderer.key = bytes(16)
+            renderer.images = {}
+            renderer.image_map = {}
+            renderer.cover_href = None
+            renderer.cover_chapter_index = 0
+            renderer.cover_source = "declared"
+            renderer.record = BookRecord(
+                title="Livro sem imagem",
+                author="Autora",
+                publisher="Editora",
+                language="pt-BR",
+                released_at=None,
+                description="",
+                unlocked=True,
+                reader_type="epub",
+                document_type="book",
+            )
+
+            renderer._load_images()
+
+            self.assertEqual(renderer.cover_source, "generated")
+            self.assertEqual(renderer.cover_href, "images/generated-cover.svg")
+            ET.fromstring(renderer.images[renderer.cover_href])
+
+
+class CatalogFilteringTests(unittest.TestCase):
+    def test_hiding_book_only_filters_visible_catalog(self) -> None:
+        books = [
+            CachedBook("1", "Visível", "Autor", "", "pt", 10, True, "ok"),
+            CachedBook("2", "Oculto", "Autor", "", "pt", 20, True, "ok"),
+        ]
+        visible = filter_hidden_books(books, {"2"})
+        self.assertEqual([book.book_id for book in visible], ["1"])
+        self.assertEqual([book.book_id for book in books], ["1", "2"])
+
+
+class CatalogUiTests(unittest.TestCase):
+    def test_exclude_and_restore_are_reversible(self) -> None:
+        try:
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            from PySide6.QtCore import QSettings
+            from PySide6.QtWidgets import QApplication, QMessageBox
+            import everand_app.ui as ui
+        except ImportError:
+            self.skipTest("PySide6 não está disponível neste ambiente")
+
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings = QSettings(
+                str(root / "settings.ini"), QSettings.Format.IniFormat
+            )
+            with (
+                mock.patch.object(ui, "QSettings", return_value=settings),
+                mock.patch.object(
+                    ui.QMessageBox,
+                    "question",
+                    return_value=QMessageBox.StandardButton.Yes,
+                ),
+            ):
+                window = ui.MainWindow(root)
+                book = CachedBook(
+                    "42", "Livro de teste", "Autora", "", "pt", 50, True, "ok"
+                )
+                window.all_books = [book]
+                window._apply_hidden_filter()
+
+                window.exclude_book_from_list("42")
+                self.assertEqual(window.books, [])
+                self.assertIn("42", window.hidden_book_ids)
+                self.assertTrue(window.restore_button.isVisibleTo(window))
+
+                window.restore_book("42")
+                self.assertEqual([item.book_id for item in window.books], ["42"])
+                self.assertNotIn("42", window.hidden_book_ids)
+                window.close()
+                app.processEvents()
 
 
 class DeviceParsingTests(unittest.TestCase):

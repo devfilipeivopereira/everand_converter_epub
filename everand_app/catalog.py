@@ -82,6 +82,13 @@ def scan_library(library_root: Path) -> list[CachedBook]:
     return books
 
 
+def filter_hidden_books(
+    books: list[CachedBook], hidden_book_ids: set[str]
+) -> list[CachedBook]:
+    """Return the visible catalog without modifying the collected snapshot."""
+    return [book for book in books if book.book_id not in hidden_book_ids]
+
+
 def latest_snapshot(snapshots_root: Path) -> Path | None:
     if not snapshots_root.is_dir():
         return None
