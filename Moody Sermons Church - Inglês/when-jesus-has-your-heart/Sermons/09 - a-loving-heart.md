@@ -1,0 +1,9 @@
+# A Loving Heart
+
+- **Série:** [When Jesus Has Your Heart](../README.md)
+- **Pregador:** Dr. Erwin W. Lutzer
+- **Ordem:** Sermon 09
+- **Data:** August 27, 2000
+- **Fonte:** [https://www.moodymedia.org/sermons/when-jesus-has-your-heart/loving-heart/](https://www.moodymedia.org/sermons/when-jesus-has-your-heart/loving-heart/)
+
+> Este arquivo organiza os metadados e o link para a mensagem. Consulte a fonte original para ouvir ou ler o sermão.
